@@ -1,0 +1,17 @@
+{
+  "name": "localagent-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first Windows desktop shell for LocalAgent",
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"npm --prefix .. run dev\" \"wait-on http://127.0.0.1:3000 && electron .\"",
+    "dist:win": "npm --prefix .. run build && electron-builder --win nsis --x64 --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.3"
+  }
+}

@@ -1,4 +1,15 @@
-export interface LocalModelConfig { baseUrl: string; model: string; }
+export type LocalModelConfig = { baseUrl: string; model: string };
+
+declare global {
+  interface Window {
+    localAgentDesktop?: {
+      isDesktop: true;
+      listModels: (config: LocalModelConfig) => Promise<string[]>;
+      chat: (config: LocalModelConfig, messages: Array<{ role: string; content: string }>) => Promise<string>;
+      saveText: (suggestedName: string, content: string) => Promise<boolean>;
+    };
+  }
+}
 
 const DEFAULT_URL = 'http://127.0.0.1:1234/v1';
 
@@ -15,14 +26,16 @@ export function saveModelConfig(config: LocalModelConfig): void {
 
 function localEndpoint(baseUrl: string, path: string): string {
   const url = new URL(baseUrl);
-  const host = url.hostname.toLowerCase();
-  if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)) {
-    throw new Error('为保持离线，模型地址必须是 localhost / 127.0.0.1。');
+  if (url.protocol !== 'http:' || !['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname.toLowerCase())) {
+    throw new Error('为保持离线，模型地址必须是 localhost / 127.0.0.1 / ::1。');
   }
-  return `${url.toString().replace(/\/$/, '')}${path}`;
+  url.pathname = `${url.pathname.replace(/\/$/, '')}${path}`;
+  url.search = ''; url.hash = '';
+  return url.toString();
 }
 
 export async function checkLocalModel(config: LocalModelConfig): Promise<string[]> {
+  if (window.localAgentDesktop?.isDesktop) return window.localAgentDesktop.listModels(config);
   const response = await fetch(localEndpoint(config.baseUrl, '/models'), { signal: AbortSignal.timeout(8000) });
   if (!response.ok) throw new Error(`本地模型服务返回 HTTP ${response.status}`);
   const data = await response.json();
@@ -34,14 +47,13 @@ export async function askLocalModel(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   signal?: AbortSignal,
 ): Promise<string> {
+  if (window.localAgentDesktop?.isDesktop) return window.localAgentDesktop.chat(config, messages);
   const models = await checkLocalModel(config);
   const model = config.model || models[0];
   if (!model) throw new Error('本地模型服务未列出可用模型，请先在 LM Studio 加载模型。');
   const response = await fetch(localEndpoint(config.baseUrl, '/chat/completions'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages, temperature: 0.4, stream: false }),
-    signal,
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages, temperature: 0.4, stream: false }), signal,
   });
   if (!response.ok) throw new Error(`模型推理失败：HTTP ${response.status} ${await response.text()}`);
   const data = await response.json();
