@@ -1,83 +1,25 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 type Theme = 'dark' | 'light';
-type ThemeMode = 'dark' | 'light' | 'auto';
-
-interface ThemeContextType {
-  theme: Theme;
-  themeMode: ThemeMode;
-  setThemeMode: (mode: ThemeMode) => void;
-  toggleTheme: () => void;
-}
-
-const ThemeContext = createContext<ThemeContextType>({
-  theme: 'dark',
-  themeMode: 'dark',
-  setThemeMode: () => {},
-  toggleTheme: () => {},
-});
-
-function getSystemTimeTheme(): Theme {
-  const hour = new Date().getHours();
-  // 6:00 - 18:00 light, 18:00 - 6:00 dark
-  return hour >= 6 && hour < 18 ? 'light' : 'dark';
-}
-
-function resolveTheme(mode: ThemeMode): Theme {
-  if (mode === 'auto') return getSystemTimeTheme();
-  return mode;
-}
+type ThemeMode = Theme | 'auto';
+interface ThemeContextValue { theme: Theme; themeMode: ThemeMode; setThemeMode: (mode: ThemeMode) => void; }
+const Context = createContext<ThemeContextValue>({ theme: 'dark', themeMode: 'auto', setThemeMode: () => undefined });
+const systemTheme = (): Theme => window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
-    try {
-      const saved = localStorage.getItem('localagent-theme-mode');
-      if (saved === 'dark' || saved === 'light' || saved === 'auto') return saved;
-    } catch {}
-    return 'dark';
+  const [themeMode, setMode] = useState<ThemeMode>(() => {
+    try { const saved = localStorage.getItem('localagent-theme-mode'); if (saved === 'dark' || saved === 'light' || saved === 'auto') return saved; } catch { /* storage disabled */ }
+    return 'auto';
   });
-
-  const [theme, setTheme] = useState<Theme>(() => resolveTheme(themeMode));
-
-  const setThemeMode = useCallback((mode: ThemeMode) => {
-    setThemeModeState(mode);
-    try { localStorage.setItem('localagent-theme-mode', mode); } catch {}
-  }, []);
-
-  const toggleTheme = useCallback(() => {
-    const next: ThemeMode = theme === 'dark' ? 'light' : 'dark';
-    setThemeMode(next);
-  }, [theme, setThemeMode]);
-
-  // Resolve theme when mode changes
+  const [theme, setTheme] = useState<Theme>(() => themeMode === 'auto' ? systemTheme() : themeMode);
+  const setThemeMode = useCallback((mode: ThemeMode) => { setMode(mode); try { localStorage.setItem('localagent-theme-mode', mode); } catch { /* storage disabled */ } }, []);
   useEffect(() => {
-    setTheme(resolveTheme(themeMode));
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => setTheme(themeMode === 'auto' ? (media.matches ? 'dark' : 'light') : themeMode);
+    update(); media.addEventListener('change', update); return () => media.removeEventListener('change', update);
   }, [themeMode]);
-
-  // Auto mode: re-check every minute
-  useEffect(() => {
-    if (themeMode !== 'auto') return;
-    const interval = setInterval(() => {
-      setTheme(getSystemTimeTheme());
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [themeMode]);
-
-  // Apply theme class to document
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.remove('dark', 'light');
-    root.classList.add(theme);
-    root.setAttribute('data-theme', theme);
-  }, [theme]);
-
-  return (
-    <ThemeContext.Provider value={{ theme, themeMode, setThemeMode, toggleTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.classList.toggle('dark', theme === 'dark'); }, [theme]);
+  const value = useMemo(() => ({ theme, themeMode, setThemeMode }), [theme, themeMode, setThemeMode]);
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
-
-export function useTheme() {
-  return useContext(ThemeContext);
-}
+export const useTheme = () => useContext(Context);
